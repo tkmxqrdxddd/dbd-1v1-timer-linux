@@ -35,7 +35,7 @@ struct sdl_state {
 // Write a one-byte command to the wakeup pipe consumed by the main loop.
 static void send_cmd(int fd, int cmd)
 {
-    write(fd, &cmd, 1);
+    (void)write(fd, &cmd, 1);
 }
 
 // True if the evdev device exposes any of the key codes listed in kb.
