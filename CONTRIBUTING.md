@@ -22,4 +22,4 @@ Manual: run from a terminal and watch stderr for input events.
 
 ## Pull requests
 
-Open a PR against `master`. CI must pass.
+Open a PR against `master`.
