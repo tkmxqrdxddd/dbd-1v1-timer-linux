@@ -1,3 +1,8 @@
+// Two parallel input threads:
+//   evdev_thread — scans /dev/input/event* for devices with bound keys, polls with poll()
+//   sdl_thread   — SDL gamecontroller loop, handles hotplug via SDL_CONTROLLERDEVICEADDED
+// Both write a single-byte command to the wakeup pipe on each relevant key press.
+
 #include "input.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,11 +32,14 @@ struct sdl_state {
     int wakeup_fd;
 };
 
+// Write a one-byte command to the wakeup pipe consumed by the main loop.
 static void send_cmd(int fd, int cmd)
 {
     write(fd, &cmd, 1);
 }
 
+// True if the evdev device exposes any of the key codes listed in kb.
+// Replaces the old is_real_keyboard() — also matches mice that have BTN_SIDE etc.
 static int device_has_bindings(struct libevdev *dev, const struct keybinds *kb)
 {
     if (!libevdev_has_event_type(dev, EV_KEY))
@@ -51,6 +59,8 @@ static int device_has_bindings(struct libevdev *dev, const struct keybinds *kb)
     return 0;
 }
 
+// Scans /dev/input for devices with bound keys, then polls for EV_KEY 1->0→1 events.
+// Re-scans every time a device error occurs so hotplug works transparently.
 static void *evdev_thread(void *arg)
 {
     struct libevdev_state *state = arg;
@@ -160,6 +170,8 @@ static void *evdev_thread(void *arg)
     return NULL;
 }
 
+// SDL2 gamecontroller thread. Opens first available controller on start
+// and listens for SDL_CONTROLLERDEVICEADDED/SDL_CONTROLLERDEVICEREMOVED for hotplug.
 static void *sdl_thread(void *arg)
 {
     struct sdl_state *state = arg;
@@ -236,6 +248,7 @@ static void *sdl_thread(void *arg)
     return NULL;
 }
 
+// Start both input threads. kb is copied so the caller may free theirs.
 int input_init(struct input_state *is, int wakeup_fd, const struct keybinds *kb)
 {
     memset(is, 0, sizeof(*is));
@@ -269,6 +282,7 @@ int input_init(struct input_state *is, int wakeup_fd, const struct keybinds *kb)
     return 0;
 }
 
+// Stop both input threads and wait for them to finish.
 void input_destroy(struct input_state *is)
 {
     if (is->evdev) {

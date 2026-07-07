@@ -1,3 +1,6 @@
+// Two independent count-up timers. Each tracks accumulated_ns across start/stop cycles.
+// Switching away from a running timer auto-stops it (cumulative time preserved).
+
 #pragma once
 
 #include <stdint.h>

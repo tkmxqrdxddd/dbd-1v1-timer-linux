@@ -1,6 +1,10 @@
+// Transparent overlay renderer: dark 50% background, two timer lines
+// (labels T1/T2 in green or grey, time text in white), green dot when running.
+
 #include "render.h"
 #include <string.h>
 
+// Set up a cairo surface backed by an SHM buffer and a shared Pango layout (monospace 28 bold).
 void render_init(struct render_state *rs, int width, int height, void *shm_data, int stride)
 {
     rs->width = width;
@@ -24,6 +28,7 @@ void render_init(struct render_state *rs, int width, int height, void *shm_data,
     cairo_font_options_set_antialias(rs->font_opts, CAIRO_ANTIALIAS_SUBPIXEL);
 }
 
+// Tear down cairo surface, context, and Pango layout.
 void render_destroy(struct render_state *rs)
 {
     if (rs->layout) g_object_unref(rs->layout);
@@ -32,6 +37,8 @@ void render_destroy(struct render_state *rs)
     if (rs->font_opts) cairo_font_options_destroy(rs->font_opts);
 }
 
+// Draw a single frame: clear → dark background → T1 label → T2 label → time text → green dot.
+// text1/text2 are pre-formatted by format_time() in main.c.
 void render_draw(struct render_state *rs, const char *text1, const char *text2, int active_idx, int running)
 {
     cairo_t *cr = rs->cr;

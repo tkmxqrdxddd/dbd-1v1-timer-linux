@@ -1,3 +1,6 @@
+// Main loop: Wayland event loop with a poll()-based wakeup pipe for input commands.
+// Renders the overlay whenever the timer state or display text changes.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +16,7 @@
 #include "input.h"
 #include "render.h"
 
+// App state — owns the Wayland connection, timer logic, input threads, and text cache.
 struct app {
     struct wayland_state wl;
     struct timer_state timer;
@@ -35,6 +39,8 @@ static void handle_signal(int sig)
     if (g_app) g_app->stop = 1;
 }
 
+// Render elapsed time as ss:cs (under 1 min) or mm:ss:cs (at or over 1 min).
+// cs = centiseconds (2 digits), no leading zero on the first field.
 static void format_time(char *buf, size_t len, uint64_t elapsed_ns)
 {
     uint64_t total_cs = elapsed_ns / 10000000ULL;
@@ -49,6 +55,8 @@ static void format_time(char *buf, size_t len, uint64_t elapsed_ns)
     }
 }
 
+// Returns 1 if the Wayland overlay should be redrawn (active timer changed,
+// running state changed, or display text changed).
 static int needs_update(struct app *app)
 {
     int active = timer_get_active(&app->timer);
@@ -65,6 +73,8 @@ static int needs_update(struct app *app)
     return 0;
 }
 
+// Dispatch a command byte from the wakeup pipe to the timer state machine.
+// CMD_TOGGLE is state-aware: running→stop, stopped-with-time→reset, zero→start.
 static void handle_cmd(struct app *app, int cmd)
 {
     switch (cmd) {
@@ -97,6 +107,7 @@ static void handle_cmd(struct app *app, int cmd)
     }
 }
 
+// Snapshot current timer state into the text cache and push a render to the overlay.
 static void render_frame(struct app *app)
 {
     int active = timer_get_active(&app->timer);
@@ -116,6 +127,7 @@ static void render_frame(struct app *app)
     wayland_commit(&app->wl);
 }
 
+// Entry point: init Wayland → timer → config → input, then run the poll loop.
 int main(void)
 {
     struct app app;

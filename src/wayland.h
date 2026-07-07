@@ -1,3 +1,5 @@
+// Wayland plumbing: registry, wlr-layer-shell overlay, xdg-toplevel companion taskbar entry.
+
 #pragma once
 
 #include <wayland-client.h>
@@ -5,6 +7,7 @@
 #include "xdg-protocol.h"
 #include "render.h"
 
+// The overlay window sits at the OVERLAY layer (above fullscreen games).
 struct overlay_window {
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
@@ -12,6 +15,7 @@ struct overlay_window {
     uint32_t configure_serial;
 };
 
+// A 1x1 xdg-toplevel so the overlay also appears in the taskbar/switcher.
 struct companion_window {
     struct wl_surface *surface;
     struct xdg_surface *xdg_surface;

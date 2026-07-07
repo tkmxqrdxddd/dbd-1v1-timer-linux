@@ -1,3 +1,7 @@
+// Key binding configuration parser.
+// Reads ~/.config/dbd-timer/config and maps human-readable key names
+// (KEY_F1, BTN_SIDE, etc.) to linux/input.h key codes.
+
 #include "config.h"
 #include "input.h"
 #include <stdio.h>
@@ -43,7 +47,7 @@ static const struct { const char *name; int code; } key_map[] = {
     {NULL, 0},
 };
 
-void config_init(struct keybinds *kb)
+void config_init(struct keybinds *kb)  // set defaults matching historic bindings
 {
     memset(kb, 0, sizeof(*kb));
     kb->n_select1 = 1; kb->keys_select1[0] = KEY_F1;
@@ -70,7 +74,7 @@ static char *trim(char *s)
     return s;
 }
 
-static char *config_path(void)
+static char *config_path(void)  // $XDG_CONFIG_HOME/dbd-timer/config or ~/.config/...
 {
     const char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg && *xdg) {
@@ -102,7 +106,7 @@ static void add_key(struct keybinds *kb, const char *cmd, int code)
         kb->keys_quit[kb->n_quit++] = code;
 }
 
-void config_load(struct keybinds *kb)
+void config_load(struct keybinds *kb)  // init defaults then overlay file
 {
     config_init(kb);
 
@@ -141,7 +145,7 @@ void config_load(struct keybinds *kb)
     fclose(f);
 }
 
-int keybinds_lookup(const struct keybinds *kb, int key_code)
+int keybinds_lookup(const struct keybinds *kb, int key_code)  // key → CMD_* or CMD_NONE
 {
     for (int i = 0; i < kb->n_select1; i++)
         if (kb->keys_select1[i] == key_code) return CMD_SEL1;

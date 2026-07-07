@@ -1,3 +1,5 @@
+// Key binding config: parses ~/.config/dbd-timer/config into key code arrays.
+
 #pragma once
 
 #include <linux/input.h>

@@ -1,3 +1,5 @@
+// Cairo+Pango rendering on a shared-memory buffer for the Wayland overlay.
+
 #pragma once
 
 #include <cairo.h>

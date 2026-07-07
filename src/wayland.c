@@ -1,3 +1,7 @@
+// Wayland initialisation and commit loop. Creates a wlr-layer-shell OVERLAY surface
+// and (optionally) a 1x1 xdg-toplevel companion so the overlay appears in the taskbar.
+// Input regions are set to empty so all events pass through to the game below.
+
 #include "wayland.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +10,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+// Create a memfd-backed SHM file of the given size (with memfd_create fallback to mkstemp).
 static int allocate_shm_file(size_t size)
 {
     int fd = memfd_create("dbd-timer-shm", MFD_CLOEXEC | MFD_ALLOW_SEALING);
@@ -24,6 +29,7 @@ static int allocate_shm_file(size_t size)
     return fd;
 }
 
+// mmap an SHM buffer, create a wl_buffer from it, and return the mapped data pointer.
 static void *create_shm_buffer(struct wl_shm *shm, int width, int height,
     struct wl_buffer **out_buffer, int *out_size)
 {
@@ -44,6 +50,7 @@ static void *create_shm_buffer(struct wl_shm *shm, int width, int height,
     return data;
 }
 
+// Bind the globals we need: compositor, shm, layer_shell, and xdg_wm_base.
 static void registry_global(void *data, struct wl_registry *registry,
     uint32_t name, const char *interface, uint32_t version)
 {
@@ -62,6 +69,7 @@ static const struct wl_registry_listener registry_listener = {
     registry_global, NULL
 };
 
+// Respond to xdg_wm_base ping (required protocol compliance).
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *wm_base, uint32_t serial)
 {
     xdg_wm_base_pong(wm_base, serial);
@@ -69,6 +77,7 @@ static void xdg_wm_base_ping(void *data, struct xdg_wm_base *wm_base, uint32_t s
 
 static const struct xdg_wm_base_listener wm_base_listener = { xdg_wm_base_ping };
 
+// wlr-layer-surface configure callback: stores the configure serial and applies dimensions.
 static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
     uint32_t serial, uint32_t width, uint32_t height)
 {
@@ -90,6 +99,7 @@ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
     layer_surface_configure, layer_surface_closed
 };
 
+// xdg_surface configure callback: ack immediately (we don't change geometry dynamically).
 static void xdg_surface_configure(void *data, struct xdg_surface *surface, uint32_t serial)
 {
     struct wayland_state *wl = data;
@@ -117,6 +127,7 @@ static const struct xdg_toplevel_listener toplevel_listener = {
     toplevel_configure, toplevel_close
 };
 
+// Make a Wayland surface transparent to input events (clicks pass through to the game).
 static void set_empty_input_region(struct wl_compositor *compositor, struct wl_surface *surface)
 {
     struct wl_region *empty = wl_compositor_create_region(compositor);
@@ -124,6 +135,7 @@ static void set_empty_input_region(struct wl_compositor *compositor, struct wl_s
     wl_region_destroy(empty);
 }
 
+// Create the wlr-layer-surface overlay: OVERLAY layer, top-left anchored, input-transparent.
 static int init_overlay(struct wayland_state *wl)
 {
     wl->overlay.surface = wl_compositor_create_surface(wl->compositor);
@@ -160,6 +172,7 @@ static int init_overlay(struct wayland_state *wl)
     return 0;
 }
 
+// Create a 1x1 xdg-toplevel so the overlay also shows up as a taskbar entry.
 static int init_companion(struct wayland_state *wl)
 {
     wl->companion.buffer = NULL;
@@ -201,6 +214,7 @@ static int init_companion(struct wayland_state *wl)
     return 0;
 }
 
+// Connect to the Wayland display, bind globals, create overlay + companion, init renderer.
 int wayland_init(struct wayland_state *wl)
 {
     memset(wl, 0, sizeof(*wl));
@@ -258,6 +272,7 @@ int wayland_init(struct wayland_state *wl)
     return 0;
 }
 
+// Attach the render buffer to the overlay surface and flush the display connection.
 void wayland_commit(struct wayland_state *wl)
 {
     wl_surface_attach(wl->overlay.surface, wl->buffer, 0, 0);
@@ -266,6 +281,7 @@ void wayland_commit(struct wayland_state *wl)
     wl_display_flush(wl->display);
 }
 
+// Clean up all Wayland objects, buffers, shm, and the render state, in reverse init order.
 void wayland_destroy(struct wayland_state *wl)
 {
     render_destroy(&wl->render);

@@ -1,3 +1,6 @@
+// Input subsystem: evdev thread (keyboard/mouse) + SDL thread (gamepad).
+// Commands are written as single bytes to a wakeup pipe consumed by main.
+
 #pragma once
 
 #include "config.h"
