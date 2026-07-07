@@ -1,0 +1,284 @@
+#include "input.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <poll.h>
+#include <libevdev/libevdev.h>
+#include <SDL2/SDL.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <linux/input.h>
+
+#define MAX_DEVICES 32
+
+struct libevdev_state {
+    pthread_t thread;
+    int stop;
+    int wakeup_fd;
+    struct keybinds kb;
+};
+
+struct sdl_state {
+    pthread_t thread;
+    int stop;
+    int wakeup_fd;
+};
+
+static void send_cmd(int fd, int cmd)
+{
+    write(fd, &cmd, 1);
+}
+
+static int device_has_bindings(struct libevdev *dev, const struct keybinds *kb)
+{
+    if (!libevdev_has_event_type(dev, EV_KEY))
+        return 0;
+    for (int i = 0; i < kb->n_select1; i++)
+        if (libevdev_has_event_code(dev, EV_KEY, kb->keys_select1[i]))
+            return 1;
+    for (int i = 0; i < kb->n_select2; i++)
+        if (libevdev_has_event_code(dev, EV_KEY, kb->keys_select2[i]))
+            return 1;
+    for (int i = 0; i < kb->n_toggle; i++)
+        if (libevdev_has_event_code(dev, EV_KEY, kb->keys_toggle[i]))
+            return 1;
+    for (int i = 0; i < kb->n_quit; i++)
+        if (libevdev_has_event_code(dev, EV_KEY, kb->keys_quit[i]))
+            return 1;
+    return 0;
+}
+
+static void *evdev_thread(void *arg)
+{
+    struct libevdev_state *state = arg;
+    int warned_group = 0;
+    int warned_no_device = 0;
+
+    while (!state->stop) {
+        struct libevdev *devices[MAX_DEVICES];
+        int device_fds[MAX_DEVICES];
+        int device_count = 0;
+
+        DIR *dir = opendir("/dev/input");
+        if (!dir) {
+            fprintf(stderr, "dbd-timer: /dev/input: %s\n", strerror(errno));
+            sleep(5);
+            continue;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL && device_count < MAX_DEVICES) {
+            if (strncmp(entry->d_name, "event", 5) != 0) continue;
+
+            char path[512];
+            snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
+            int fd = open(path, O_RDONLY | O_NONBLOCK);
+            if (fd < 0) {
+                if (!warned_group && errno == EACCES) {
+                    fprintf(stderr, "dbd-timer: permission denied on %s\n", path);
+                    fprintf(stderr, "dbd-timer: run: sudo usermod -aG input $USER\n");
+                    warned_group = 1;
+                }
+                continue;
+            }
+
+            struct libevdev *dev = NULL;
+            if (libevdev_new_from_fd(fd, &dev) < 0) {
+                close(fd);
+                continue;
+            }
+
+            if (device_has_bindings(dev, &state->kb)) {
+                devices[device_count] = dev;
+                device_fds[device_count] = fd;
+                device_count++;
+                fprintf(stderr, "dbd-timer: device %d = %s (%s)\n",
+                    device_count, entry->d_name, libevdev_get_name(dev));
+            } else {
+                libevdev_free(dev);
+                close(fd);
+            }
+        }
+        closedir(dir);
+
+        if (device_count == 0) {
+            if (!warned_no_device) {
+                fprintf(stderr, "dbd-timer: no input device with bound keys found\n");
+                warned_no_device = 1;
+            }
+            sleep(2);
+            continue;
+        }
+
+        warned_no_device = 0;
+
+        struct pollfd pfds[MAX_DEVICES];
+        for (int i = 0; i < device_count; i++) {
+            pfds[i].fd = device_fds[i];
+            pfds[i].events = POLLIN;
+        }
+
+        while (!state->stop) {
+            int ret = poll(pfds, device_count, 50);
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+
+            for (int i = 0; i < device_count; i++) {
+                if (!(pfds[i].revents & POLLIN)) continue;
+
+                struct input_event ev;
+                while (1) {
+                    int rc = libevdev_next_event(devices[i],
+                        LIBEVDEV_READ_FLAG_NORMAL, &ev);
+                    if (rc == -EAGAIN) break;
+                    if (rc == LIBEVDEV_READ_STATUS_SYNC) continue;
+                    if (rc < 0) goto device_error;
+
+                    if (ev.type == EV_KEY && ev.value == 1) {
+                        int cmd = keybinds_lookup(&state->kb, ev.code);
+                        if (cmd) {
+                            fprintf(stderr, "dbd-timer: key %d -> cmd %d\n", ev.code, cmd);
+                            send_cmd(state->wakeup_fd, cmd);
+                        }
+                    }
+                }
+            }
+        }
+        device_error: ;
+
+        for (int i = 0; i < device_count; i++) {
+            libevdev_free(devices[i]);
+            close(device_fds[i]);
+        }
+    }
+
+    return NULL;
+}
+
+static void *sdl_thread(void *arg)
+{
+    struct sdl_state *state = arg;
+
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK) < 0) {
+        fprintf(stderr, "dbd-timer: SDL init: %s\n", SDL_GetError());
+        return NULL;
+    }
+
+    fprintf(stderr, "dbd-timer: SDL initialized\n");
+
+    SDL_GameController *controller = NULL;
+
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        if (SDL_IsGameController(i)) {
+            controller = SDL_GameControllerOpen(i);
+            if (controller) {
+                fprintf(stderr, "dbd-timer: controller %d connected\n", i);
+                break;
+            }
+        }
+    }
+
+    while (!state->stop) {
+        if (!controller) {
+            SDL_Delay(16);
+            continue;
+        }
+
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            switch (ev.type) {
+            case SDL_CONTROLLERDEVICEADDED:
+                if (!controller) {
+                    controller = SDL_GameControllerOpen(ev.cdevice.which);
+                    if (controller) {
+                        fprintf(stderr, "dbd-timer: controller %d connected\n", ev.cdevice.which);
+                    }
+                }
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (controller && ev.cdevice.which == SDL_JoystickInstanceID(
+                        SDL_GameControllerGetJoystick(controller))) {
+                    fprintf(stderr, "dbd-timer: controller disconnected\n");
+                    SDL_GameControllerClose(controller);
+                    controller = NULL;
+                }
+                break;
+            case SDL_CONTROLLERBUTTONDOWN: {
+                int cmd = CMD_NONE;
+                switch (ev.cbutton.button) {
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT:   cmd = CMD_SEL1;   break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:  cmd = CMD_SEL2;   break;
+                case SDL_CONTROLLER_BUTTON_A:           cmd = CMD_TOGGLE; break;
+                }
+                if (cmd) {
+                    fprintf(stderr, "dbd-timer: ctrl button %d -> cmd %d\n", ev.cbutton.button, cmd);
+                    send_cmd(state->wakeup_fd, cmd);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        SDL_Delay(16);
+    }
+
+    if (controller) SDL_GameControllerClose(controller);
+    SDL_Quit();
+    return NULL;
+}
+
+int input_init(struct input_state *is, int wakeup_fd, const struct keybinds *kb)
+{
+    memset(is, 0, sizeof(*is));
+    is->wakeup_fd = wakeup_fd;
+
+    fprintf(stderr, "dbd-timer: initializing input...\n");
+
+    is->evdev = calloc(1, sizeof(struct libevdev_state));
+    is->evdev->wakeup_fd = wakeup_fd;
+    is->evdev->stop = 0;
+    is->evdev->kb = *kb;
+
+    int ret = pthread_create(&is->evdev->thread, NULL, evdev_thread, is->evdev);
+    if (ret != 0) {
+        fprintf(stderr, "dbd-timer: evdev thread: %s\n", strerror(ret));
+        free(is->evdev);
+        is->evdev = NULL;
+    }
+
+    is->sdl = calloc(1, sizeof(struct sdl_state));
+    is->sdl->wakeup_fd = wakeup_fd;
+    is->sdl->stop = 0;
+
+    ret = pthread_create(&is->sdl->thread, NULL, sdl_thread, is->sdl);
+    if (ret != 0) {
+        fprintf(stderr, "dbd-timer: SDL thread: %s\n", strerror(ret));
+        free(is->sdl);
+        is->sdl = NULL;
+    }
+
+    return 0;
+}
+
+void input_destroy(struct input_state *is)
+{
+    if (is->evdev) {
+        is->evdev->stop = 1;
+        pthread_join(is->evdev->thread, NULL);
+        free(is->evdev);
+    }
+    if (is->sdl) {
+        is->sdl->stop = 1;
+        pthread_join(is->sdl->thread, NULL);
+        free(is->sdl);
+    }
+}

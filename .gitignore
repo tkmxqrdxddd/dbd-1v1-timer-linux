@@ -1,0 +1,17 @@
+# Build
+build/
+meson-private/
+meson-logs/
+*.o
+*.a
+*.so
+
+# AI / agent tooling
+.opencode/
+graphify-out/
+AGENTS.md
+
+# Editor
+*.swp
+*.swo
+*~
