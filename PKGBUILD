@@ -1,11 +1,11 @@
-# Maintainer: Your Name <you@example.com>
+# Maintainer: tkmxqrdxddd <tkmxqrd@gmail.com>
 
 pkgname=dbd-timer
 pkgver=1.0.0
 pkgrel=1
 pkgdesc="Overlay stopwatch with two independent timers, Wayland overlay, and gamepad support"
 arch=('x86_64')
-url="https://github.com/example/dbd-timer"
+url="https://github.com/tkmxqrdxddd/dbd-1v1-timer-linux"
 license=('MIT')
 depends=(
   'cairo'
@@ -16,16 +16,13 @@ depends=(
   'wayland'
 )
 makedepends=('meson' 'wayland-scanner')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/example/dbd-timer/archive/v$pkgver.tar.gz")
+source=("https://github.com/tkmxqrdxddd/dbd-1v1-timer-linux/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-  arch-meson "$pkgname-$pkgver" build
+  cd "dbd-1v1-timer-linux-$pkgver"
+  arch-meson build
   meson compile -C build
-}
-
-check() {
-  true
 }
 
 package() {
