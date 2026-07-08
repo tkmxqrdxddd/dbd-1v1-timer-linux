@@ -218,11 +218,6 @@ static void *sdl_thread(void *arg)
     }
 
     while (!state->stop) {
-        if (!controller) {
-            SDL_Delay(16);
-            continue;
-        }
-
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             switch (ev.type) {
@@ -242,19 +237,20 @@ static void *sdl_thread(void *arg)
                     controller = NULL;
                 }
                 break;
-            case SDL_CONTROLLERBUTTONDOWN: {
-                int cmd = CMD_NONE;
-                switch (ev.cbutton.button) {
-                case SDL_CONTROLLER_BUTTON_DPAD_LEFT:   cmd = CMD_SEL1;   break;
-                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:  cmd = CMD_SEL2;   break;
-                case SDL_CONTROLLER_BUTTON_A:           cmd = CMD_TOGGLE; break;
-                }
-                if (cmd) {
-                    fprintf(stderr, "dbd-timer: ctrl button %d -> cmd %d\n", ev.cbutton.button, cmd);
-                    send_cmd(state->wakeup_fd, cmd);
+            case SDL_CONTROLLERBUTTONDOWN:
+                if (controller) {
+                    int cmd = CMD_NONE;
+                    switch (ev.cbutton.button) {
+                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT:   cmd = CMD_SEL1;   break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:  cmd = CMD_SEL2;   break;
+                    case SDL_CONTROLLER_BUTTON_A:           cmd = CMD_TOGGLE; break;
+                    }
+                    if (cmd) {
+                        fprintf(stderr, "dbd-timer: ctrl button %d -> cmd %d\n", ev.cbutton.button, cmd);
+                        send_cmd(state->wakeup_fd, cmd);
+                    }
                 }
                 break;
-            }
             default:
                 break;
             }

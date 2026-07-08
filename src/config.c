@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #define KEY_ENTRY(n) {#n, n}
 
@@ -136,6 +137,38 @@ static void add_key(struct keybinds *kb, const char *cmd, int code, int mods)
     }
 }
 
+static void config_create_defaults(const char *path)
+{
+    char *dir = strdup(path);
+    if (!dir) return;
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir(dir, 0755);
+        char *parent = strrchr(dir, '/');
+        if (parent) {
+            *parent = '\0';
+            mkdir(dir, 0755);
+            *parent = '/';
+        }
+        *slash = '/';
+    }
+    free(dir);
+
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "# DBD Timer configuration\n#\n");
+    fprintf(f, "# Lines starting with # are comments.\n");
+    fprintf(f, "# Multiple keys for one command: comma-separated (alternatives).\n");
+    fprintf(f, "# Chords: join with + (all must be held together).\n\n");
+    fprintf(f, "select1 = KEY_F1\n");
+    fprintf(f, "select2 = KEY_F2\n");
+    fprintf(f, "toggle  = KEY_F, BTN_SIDE\n");
+    fprintf(f, "quit    = KEY_ESC + KEY_LEFTCTRL + KEY_LEFTSHIFT\n");
+    fclose(f);
+    fprintf(stderr, "dbd-timer: created default config at %s\n", path);
+}
+
 void config_load(struct keybinds *kb)  // init defaults then overlay file
 {
     config_init(kb);
@@ -144,8 +177,11 @@ void config_load(struct keybinds *kb)  // init defaults then overlay file
     if (!path) return;
 
     FILE *f = fopen(path, "r");
-    free(path);
-    if (!f) return;
+    if (!f) {
+        config_create_defaults(path);
+        free(path);
+        return;
+    }
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
