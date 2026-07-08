@@ -19,12 +19,12 @@ source=("https://github.com/tkmxqrdxddd/dbd-1v1-timer-linux/archive/v$pkgver.tar
 sha256sums=('e59cafafcbebafa673cf1322f34efdb33a3d403a9a05d85d0410fdb5dd4b6aaa')
 
 build() {
-  cd "dbd-1v1-timer-linux-$pkgver"
+  cd "$srcdir/dbd-1v1-timer-linux-$pkgver"
   arch-meson build
   meson compile -C build
 }
 
 package() {
-  cd "dbd-1v1-timer-linux-$pkgver"
+  cd "$srcdir/dbd-1v1-timer-linux-$pkgver"
   DESTDIR="$pkgdir" meson install -C build
 }
