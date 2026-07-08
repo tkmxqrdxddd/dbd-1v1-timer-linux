@@ -23,6 +23,7 @@ struct libevdev_state {
     pthread_t thread;
     int stop;
     int wakeup_fd;
+    int mods;  // currently held modifier keys (MOD_* bitmask)
     struct keybinds kb;
 };
 
@@ -36,6 +37,17 @@ struct sdl_state {
 static void send_cmd(int fd, int cmd)
 {
     (void)write(fd, &cmd, 1);
+}
+
+// Convert an evdev key code to a modifier bit, or 0 if it's not a modifier.
+static int code_to_mod(int code)
+{
+    switch (code) {
+    case KEY_LEFTCTRL:  case KEY_RIGHTCTRL:  return MOD_CTRL;
+    case KEY_LEFTSHIFT: case KEY_RIGHTSHIFT: return MOD_SHIFT;
+    case KEY_LEFTALT:   case KEY_RIGHTALT:   return MOD_ALT;
+    default: return 0;
+    }
 }
 
 // True if the evdev device exposes any of the key codes listed in kb.
@@ -149,11 +161,19 @@ static void *evdev_thread(void *arg)
                     if (rc == LIBEVDEV_READ_STATUS_SYNC) continue;
                     if (rc < 0) goto device_error;
 
-                    if (ev.type == EV_KEY && ev.value == 1) {
-                        int cmd = keybinds_lookup(&state->kb, ev.code);
-                        if (cmd) {
-                            fprintf(stderr, "dbd-timer: key %d -> cmd %d\n", ev.code, cmd);
-                            send_cmd(state->wakeup_fd, cmd);
+                    if (ev.type == EV_KEY) {
+                        int modbit = code_to_mod(ev.code);
+                        if (modbit) {
+                            if (ev.value)
+                                state->mods |= modbit;
+                            else
+                                state->mods &= ~modbit;
+                        } else if (ev.value == 1) {
+                            int cmd = keybinds_lookup(&state->kb, ev.code, state->mods);
+                            if (cmd) {
+                                fprintf(stderr, "dbd-timer: key %d mods %d -> cmd %d\n", ev.code, state->mods, cmd);
+                                send_cmd(state->wakeup_fd, cmd);
+                            }
                         }
                     }
                 }

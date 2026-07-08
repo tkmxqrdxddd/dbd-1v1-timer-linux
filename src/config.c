@@ -31,6 +31,12 @@ static const struct { const char *name; int code; } key_map[] = {
     KEY_ENTRY(BTN_EXTRA),
     KEY_ENTRY(BTN_FORWARD),
     KEY_ENTRY(BTN_BACK),
+    KEY_ENTRY(KEY_LEFTCTRL),
+    KEY_ENTRY(KEY_RIGHTCTRL),
+    KEY_ENTRY(KEY_LEFTSHIFT),
+    KEY_ENTRY(KEY_RIGHTSHIFT),
+    KEY_ENTRY(KEY_LEFTALT),
+    KEY_ENTRY(KEY_RIGHTALT),
     KEY_ENTRY(BTN_SOUTH),
     KEY_ENTRY(BTN_EAST),
     KEY_ENTRY(BTN_NORTH),
@@ -93,17 +99,40 @@ static char *config_path(void)  // $XDG_CONFIG_HOME/dbd-timer/config or ~/.confi
     return NULL;
 }
 
-static void add_key(struct keybinds *kb, const char *cmd, int code)
+static int key_to_mod(const char *name)
+{
+    if (strcasecmp(name, "KEY_LEFTCTRL")  == 0 ||
+        strcasecmp(name, "KEY_RIGHTCTRL") == 0)
+        return MOD_CTRL;
+    if (strcasecmp(name, "KEY_LEFTSHIFT")  == 0 ||
+        strcasecmp(name, "KEY_RIGHTSHIFT") == 0)
+        return MOD_SHIFT;
+    if (strcasecmp(name, "KEY_LEFTALT")  == 0 ||
+        strcasecmp(name, "KEY_RIGHTALT") == 0)
+        return MOD_ALT;
+    return 0;
+}
+
+static void add_key(struct keybinds *kb, const char *cmd, int code, int mods)
 {
     if (code < 0) return;
-    if (strcmp(cmd, "select1") == 0 && kb->n_select1 < MAX_KEYS_PER_CMD)
-        kb->keys_select1[kb->n_select1++] = code;
-    else if (strcmp(cmd, "select2") == 0 && kb->n_select2 < MAX_KEYS_PER_CMD)
-        kb->keys_select2[kb->n_select2++] = code;
-    else if (strcmp(cmd, "toggle") == 0 && kb->n_toggle < MAX_KEYS_PER_CMD)
-        kb->keys_toggle[kb->n_toggle++] = code;
-    else if (strcmp(cmd, "quit") == 0 && kb->n_quit < MAX_KEYS_PER_CMD)
-        kb->keys_quit[kb->n_quit++] = code;
+    if (strcmp(cmd, "select1") == 0 && kb->n_select1 < MAX_KEYS_PER_CMD) {
+        kb->keys_select1[kb->n_select1]   = code;
+        kb->mods_select1[kb->n_select1]   = mods;
+        kb->n_select1++;
+    } else if (strcmp(cmd, "select2") == 0 && kb->n_select2 < MAX_KEYS_PER_CMD) {
+        kb->keys_select2[kb->n_select2]   = code;
+        kb->mods_select2[kb->n_select2]   = mods;
+        kb->n_select2++;
+    } else if (strcmp(cmd, "toggle") == 0 && kb->n_toggle < MAX_KEYS_PER_CMD) {
+        kb->keys_toggle[kb->n_toggle]     = code;
+        kb->mods_toggle[kb->n_toggle]     = mods;
+        kb->n_toggle++;
+    } else if (strcmp(cmd, "quit") == 0 && kb->n_quit < MAX_KEYS_PER_CMD) {
+        kb->keys_quit[kb->n_quit]         = code;
+        kb->mods_quit[kb->n_quit]         = mods;
+        kb->n_quit++;
+    }
 }
 
 void config_load(struct keybinds *kb)  // init defaults then overlay file
@@ -132,11 +161,30 @@ void config_load(struct keybinds *kb)  // init defaults then overlay file
         while (token) {
             char *t = trim(token);
             if (*t) {
-                int code = parse_key(t);
+                int code = -1;
+                int mods = MOD_NONE;
+                char *plus = strchr(t, '+');
+                if (plus) {
+                    *plus = '\0';
+                    code = parse_key(trim(t));
+                    char *m = strtok(plus + 1, "+");
+                    while (m) {
+                        char *mt = trim(m);
+                        int mbits = key_to_mod(mt);
+                        if (!mbits) {
+                            fprintf(stderr, "dbd-timer: unknown modifier '%s' in config\n", mt);
+                        } else {
+                            mods |= mbits;
+                        }
+                        m = strtok(NULL, "+");
+                    }
+                } else {
+                    code = parse_key(t);
+                }
                 if (code < 0) {
                     fprintf(stderr, "dbd-timer: unknown key '%s' in config\n", t);
                 } else {
-                    add_key(kb, cmd, code);
+                    add_key(kb, cmd, code, mods);
                 }
             }
             token = strtok(NULL, ",");
@@ -145,15 +193,15 @@ void config_load(struct keybinds *kb)  // init defaults then overlay file
     fclose(f);
 }
 
-int keybinds_lookup(const struct keybinds *kb, int key_code)  // key → CMD_* or CMD_NONE
+int keybinds_lookup(const struct keybinds *kb, int key_code, int mods)  // key+mods → CMD_* or CMD_NONE
 {
     for (int i = 0; i < kb->n_select1; i++)
-        if (kb->keys_select1[i] == key_code) return CMD_SEL1;
+        if (kb->keys_select1[i] == key_code && kb->mods_select1[i] == mods) return CMD_SEL1;
     for (int i = 0; i < kb->n_select2; i++)
-        if (kb->keys_select2[i] == key_code) return CMD_SEL2;
+        if (kb->keys_select2[i] == key_code && kb->mods_select2[i] == mods) return CMD_SEL2;
     for (int i = 0; i < kb->n_toggle; i++)
-        if (kb->keys_toggle[i] == key_code) return CMD_TOGGLE;
+        if (kb->keys_toggle[i] == key_code && kb->mods_toggle[i] == mods) return CMD_TOGGLE;
     for (int i = 0; i < kb->n_quit; i++)
-        if (kb->keys_quit[i] == key_code) return CMD_QUIT;
+        if (kb->keys_quit[i] == key_code && kb->mods_quit[i] == mods) return CMD_QUIT;
     return CMD_NONE;
 }

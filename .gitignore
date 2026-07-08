@@ -15,3 +15,9 @@ AGENTS.md
 *.swp
 *.swo
 *~
+
+# Build artifacts
+*.tar.gz
+*.pkg.tar.zst
+pkg/
+src/*/
