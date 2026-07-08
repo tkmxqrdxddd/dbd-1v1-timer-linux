@@ -61,6 +61,7 @@ void config_init(struct keybinds *kb)  // set defaults matching historic binding
     kb->n_toggle  = 2; kb->keys_toggle[0]  = KEY_F;
                         kb->keys_toggle[1]  = BTN_SIDE;
     kb->n_quit    = 1; kb->keys_quit[0]    = KEY_ESC;
+                        kb->mods_quit[0]    = MOD_CTRL | MOD_SHIFT;
 }
 
 static int parse_key(const char *s)
